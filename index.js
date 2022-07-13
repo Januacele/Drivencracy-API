@@ -48,7 +48,7 @@ app.post('/poll', async (req, res) => {
     try {
         const insertPoll = await db.collection('polls').insertOne({
             title,
-            expireAt
+            expireAt:expire
         });
 
         res.status(201).send(insertPoll);
