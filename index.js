@@ -27,7 +27,7 @@ app.post('/poll', async (req, res) => {
     const { title, expireAt } = req.body;
     let now = dayjs();
     const date30 = now.add(1, 'M').format('YYYY-MM-DD HH:mm');
-    
+
 
     const pollSchema = joi.object({
         title: joi.string().required(),
@@ -63,7 +63,7 @@ app.get('/poll', async (req, res) => {
     try {
         const findPolls = await db.collection('polls').find().toArray();
         res.status(201).send(findPolls);
-    
+
     } catch (error) {
         res.sendStatus(500);
     }
@@ -79,7 +79,7 @@ app.post('/choice', async (req, res) => {
         title: joi.string().required(),
         pollId: joi.string().required()
     });
-    
+
     const validateChoice = choiceSchema.validate(req.body);
 
     if (validateChoice.error) {
@@ -87,16 +87,16 @@ app.post('/choice', async (req, res) => {
     }
 
     try {
-        const pollIdExist = await db.collection('polls').findOne({ 
-            _id: ObjectId(pollId) });
-            // console.log(ObjectId(pollId));
-            
+        const pollIdExist = await db.collection('polls').findOne({
+            _id: ObjectId(pollId)
+        });
+
         if (!pollIdExist) {
             return res.sendStatus(404);
         }
-        
+
         const { expireAt } = pollIdExist;
-        if ( expireAt < date) {
+        if (expireAt < date) {
             return res.sendStatus(403);
         }
 
@@ -125,12 +125,12 @@ app.get('/poll/:id/choice', async (req, res) => {
         const polls = await db.collection("polls").findOne({
             _id: new ObjectId(id)
         });
-        if(!polls){
+        if (!polls) {
             return res.sendStatus(404);
         }
 
         const chooseOptions = await db.collection("choices").find({
-            pollId : id
+            pollId: id
         }).toArray();
         res.send(chooseOptions);
     } catch (error) {
@@ -139,42 +139,75 @@ app.get('/poll/:id/choice', async (req, res) => {
     }
 });
 
-
 app.post("/choice/:id/vote", async (req, res) => {
     const id = req.params.id;
     let now = dayjs();
-    
-  try {
-    let voteExists = await db.collection("choices").findOne({ _id: ObjectId(id) });
-    if (!voteExists) {
-      return res.sendStatus(404);
+
+    try {
+        let voteExists = await db.collection("choices").findOne({ _id: ObjectId(id) });
+        if (!voteExists) {
+            return res.sendStatus(404);
+        }
+
+        const pollExists = await db
+            .collection("polls")
+            .findOne({ _id: new ObjectId(voteExists.pollId) });
+        console.log(pollExists.expireAt);
+
+        const { expireAt } = pollExists.expireAt;
+
+        const pollExpires = now.add();
+
+        if (expireAt < pollExpires) {
+            return res.sendStatus(403);
+        }
+
+        await db.collection("votes").insertOne({
+            title: voteExists.title,
+            pollId: voteExists.pollId,
+            choiceId: voteExists._id,
+            createdAt: now.format("YYYY-MM-DD HH:mm:ss")
+        });
+        res.sendStatus(201);
+    } catch (error) {
+        console.log(error);
+        return res.status(500).send("Erro ao votar");
     }
+});
 
-    const pollExists = await db
-      .collection("polls")
-      .findOne({ _id: new ObjectId(voteExists.pollId) });
-    console.log(pollExists.expireAt);
+app.get('/poll/:id/result', async (req, res) => {
+    const id = req.params.id;
+       
+    try {
+        const existPoll = await db.collection("polls").findOne({ _id: ObjectId(id) });
 
-    const data = pollExists.expireAt;
+        if(!existPoll){
+            res.sendStatus(404);
+        }
 
-    const pollExpires = now.add();
-
-    if (pollExpires.diff(data, "day") >= 30) {
-      return res.sendStatus(403);
+        const votes = await db.collection("votes").find({pollId: id}).toArray();
+        const specificVote = votes[0]
+        const choices = await db.collection("choices").findOne({ pollId: String(specificVote.pollId) });
+        const polls = await db
+          .collection("polls")
+          .findOne({ _id: new ObjectId(choices.pollId) });
+          console.log(votes[0])
+      const results = await db.collection("results").insertOne({
+        title: polls.title,
+        expireAt: polls.expireAt,
+        result: {
+          title: choices.title,
+          votes: votes.length
+        },
+      });
+      const result = await db.collection("results").find({title: polls.title}).toArray()
+      result.reverse()
+      console.log(result)
+      res.send(result[0]);
+    } catch (error) {
+      console.log(error);
+      return res.status(500).send("Erro ao pegar o resultado");
     }
-    
-    let voteData = await db.collection("votes").findOne({choiceId: voteExists._id})
-    await db.collection("votes").insertOne({
-      title: 1,
-      pollId: voteExists.pollId,
-      choiceId: voteExists._id,
-      createdAt: now.format("YYYY-MM-DD HH:mm:ss")
-    });
-    res.sendStatus(201);
-  } catch (error) {
-    console.log(error);
-    return res.status(500).send("Erro ao votar");
-  }
 });
 
 const PORT = process.env.PORT || 5001
