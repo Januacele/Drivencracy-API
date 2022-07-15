@@ -109,7 +109,7 @@ app.post('/choice', async (req, res) => {
             return res.sendStatus(409)
         }
 
-        await db.collection('choices').insertOne({ title, pollId });
+        await db.collection('choices').insertOne({ title, pollId, votes: 0 });
         res.sendStatus(201);
 
     } catch (error) {
@@ -162,6 +162,10 @@ app.post("/choice/:id/vote", async (req, res) => {
             return res.sendStatus(403);
         }
 
+        await db
+        .collection("choices")
+        .findOneAndUpdate({ _id: ObjectId(id) }, { $inc: { votes: 1 } });
+
         await db.collection("votes").insertOne({
             title: voteExists.title,
             pollId: voteExists.pollId,
@@ -176,38 +180,52 @@ app.post("/choice/:id/vote", async (req, res) => {
 });
 
 app.get('/poll/:id/result', async (req, res) => {
-    const id = req.params.id;
-       
-    try {
-        const existPoll = await db.collection("polls").findOne({ _id: ObjectId(id) });
 
-        if(!existPoll){
-            res.sendStatus(404);
+const pollId = req.params.id;
+
+    try {
+
+        const validPool = await db.collection('polls').findOne({
+            _id: ObjectId(pollId)
+        });
+    
+        if(!validPool){
+            return res.status(404).send('Enquete não encontrada');
         }
 
-        const votes = await db.collection("votes").find({pollId: id}).toArray();
-        const specificVote = votes[0]
-        const choices = await db.collection("choices").findOne({ pollId: String(specificVote.pollId) });
-        const polls = await db
-          .collection("polls")
-          .findOne({ _id: new ObjectId(choices.pollId) });
-          console.log(votes[0])
-      const results = await db.collection("results").insertOne({
-        title: polls.title,
-        expireAt: polls.expireAt,
-        result: {
-          title: choices.title,
-          votes: votes.length
-        },
-      });
-      const result = await db.collection("results").find({title: polls.title}).toArray()
-      result.reverse()
-      console.log(result)
-      res.send(result[0]);
+      const choices = await db
+        .collection("choices")
+        .find({ pollId: pollId })
+        .toArray();
+  
+      let mostVoted = 0;
+      let mostVotedTitle = "";
+  
+      for (let i = 0; i < choices.length; i++) {
+        let votes = choices[i].votes;
+  
+        if (votes > mostVoted) {
+          mostVoted = votes;
+          mostVotedTitle = choices[i].title;
+        }
+      }
+  
+      const result = {
+        title: mostVotedTitle,
+        votes: mostVoted,
+      };
+  
+      const poll = await db
+        .collection("polls")
+        .findOne({ _id: ObjectId(pollId) });
+  
+      const results = { ...poll, result };
+  
+      return res.status(201).send(results);
     } catch (error) {
-      console.log(error);
-      return res.status(500).send("Erro ao pegar o resultado");
+      return res.status(500).send("Falha ao tentar pegar o resultado", error);
     }
+  
 });
 
 const PORT = process.env.PORT || 5001
